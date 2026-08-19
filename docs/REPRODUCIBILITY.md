@@ -1,5 +1,19 @@
 # 复现方法
 
+## 先区分“当前模板”和“历史记录”
+
+根目录 `.env.example` 与 `scripts/` 可复现 Qwen3.8 双机 TP=2 profile。其他案例的参数、
+版本和证据记录在 [`profiles/deployments.yaml`](../profiles/deployments.yaml) 与
+[案例页](cases/README.md)；它们不一定能由同一启动器直接运行。
+
+历史案例有三种复现状态：
+
+- **完整固定**：image digest/ID、model revision、参数和测试均保留；
+- **测量可审计但 runtime 不完整**：如 Qwen3.6 historical nightly；
+- **bring-up only**：如 BigBang 和早期 DeepSeek，部署成功但无正式 benchmark。
+
+不要用当前同名 nightly image ID 回填旧记录。
+
 ## 固定四类输入
 
 一个可复现的双机部署至少要固定：
@@ -72,3 +86,17 @@ make verify-model
 5. 验收后再替换原服务。
 
 不要让 `nightly` tag 在无人检查时自动拉取并重启生产服务。
+
+## 一份完整结果记录应包含
+
+- `profiles/deployments.yaml` 中的 immutable identity；
+- 原始 JSON/CSV/Markdown，而不是只保留截图；
+- benchmark 工具版本、tokenizer、chat template 和请求配置；
+- cold/JIT、first 与 hot 标记；
+- aggregate/per-request、错误数和完成 token；
+- NCCL transport、两 rank 活跃证据；
+- 两节点 available/swap/OOM/restart；
+- speculative 接受率与 iteration rate；
+- 对照中匹配和不匹配的变量。
+
+仓库中的 [验证矩阵](VALIDATION.md) 用这些字段判断每个历史案例能支持多强的结论。

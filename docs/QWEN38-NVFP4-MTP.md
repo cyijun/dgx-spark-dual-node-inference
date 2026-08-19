@@ -1,5 +1,9 @@
 # Qwen3.8-27B-NVFP4 + MTP 验收记录
 
+这是多模型实践档案中的最新文本服务案例，也是根目录 `scripts/` 当前实现的可运行
+reference profile。其他模型的历史与测试入口见 [部署历史](HISTORY.md) 和
+[验证矩阵](VALIDATION.md)。
+
 ## 固定输入
 
 | 项目 | 值 |
@@ -16,6 +20,7 @@
 | Topology | TP=2、PP=1、两节点原生 `mp` |
 
 这是 2026-08-19 的环境快照。`nightly` tag 会移动，实际复现必须同时校验完整 image ID。
+机器可读配置见 [`profiles/deployments.yaml`](../profiles/deployments.yaml)。
 
 ## 最终启动选择
 

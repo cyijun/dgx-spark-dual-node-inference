@@ -1,4 +1,15 @@
-# 架构与启动顺序
+# 架构选择与当前模板启动顺序
+
+这个实践档案包含三类并行架构，不能用一套启动参数互换：
+
+| 案例 | 控制面 | 模型并行 | 数据面 |
+|---|---|---|---|
+| Qwen / BigBang / DeepSeek 文本模型 | vLLM native multiprocessing | Tensor Parallel | PyNCCL/NCCL over RoCE |
+| MiniMax H3 单机 | vLLM-Omni | 无跨机并行 | 本地 CUDA |
+| MiniMax H3 双机 | Ray actor placement | Ulysses sequence parallel | PyTorch distributed/NCCL over RoCE |
+
+下面的拓扑与脚本描述仓库根目录当前可运行的 Qwen3.8/vLLM TP=2 模板。MiniMax H3
+的自定义 diffusion executor 见 [案例页](cases/MINIMAX-H3.md) 和对应独立项目。
 
 ## 拓扑
 
@@ -16,14 +27,15 @@ Head 同时承担 API、调度和 TP rank 0。Worker 以 `--headless` 运行 ran
 通过 `--master-addr`/`--master-port` 建立进程组，通过 NCCL 在指定 RoCE fabric 上完成
 collective。
 
-## 为什么使用 vLLM 原生 multiprocessing
+## 当前模板为什么使用 vLLM 原生 multiprocessing
 
 本案例只有两个节点、每节点一张 GPU。vLLM 的多节点 `mp` executor 已能直接表达这个
 拓扑，不需要额外启动 Ray head、Ray worker 或 dashboard。减少控制面组件也减少了端口、
 版本和故障面。
 
-这不意味着 Ray 永远不合适；多副本调度、异构角色或框架只提供 Ray backend 时，仍应按
-对应运行时设计。
+这不意味着 Ray 永远不合适。MiniMax H3 双机实验正是因为当时 vLLM-Omni 的 diffusion
+路径没有可用的跨主机 multiprocessing executor，才使用 Ray 做跨机 actor placement。
+选择的是模型和框架实际支持的执行边界，不是统一偏好某个 launcher。
 
 ## 启动顺序
 
