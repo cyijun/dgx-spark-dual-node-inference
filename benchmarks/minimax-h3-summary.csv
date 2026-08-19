@@ -1,0 +1,12 @@
+topology,profile,workload,metric,value,unit,state,source_record
+single,sdpa_eager_no_cache,768x448_20step_2s,warm_client_mean,152.911,seconds,warm,single-spark-results
+single,cudnn_compile_no_cache,768x448_20step_2s,warm_client_mean,111.373,seconds,warm_final_image,single-spark-results
+single,cudnn_compile_cached_010,768x448_20step_2s,warm_client_mean,80.579,seconds,warm_final_image,single-spark-results
+dual,cudnn_compile_no_cache,768x448_20step_2s,cold_ready,588.98,seconds,cold,dual-public-release
+dual,cudnn_compile_no_cache,768x448_20step_2s,warm_client,46.574,seconds,warm,dual-public-release
+dual,cudnn_compile_balanced_cache,768x448_20step_2s,cold_ready,584.91,seconds,cold,dual-public-release
+dual,cudnn_compile_balanced_cache,768x448_20step_2s,warm_client,30.578,seconds,warm,dual-public-release
+dual,cudnn_compile_no_cache,1344x768_50step_4s,client_elapsed,1353.506,seconds,matched_full_compute,dual-results
+dual,cudnn_compile_balanced_cache,1344x768_50step_4s,client_elapsed,608.991,seconds,matched_cached,dual-results
+dual,cudnn_compile_balanced_cache,1344x768_50step_4s,video_ssim_vs_full_compute,0.8879,ratio,matched_cached,dual-results
+dual,cudnn_compile_balanced_cache,1344x768_50step_4s,video_psnr_vs_full_compute,27.04,decibels,matched_cached,dual-results

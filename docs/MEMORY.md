@@ -43,6 +43,18 @@ make memory
 增加约 0.40 GiB/节点，并因为 cache 对齐填充使 token 容量下降约 7.9%。当前
 `max-num-seqs=8` 仍比 KV 理论容量更保守。
 
+## 其他案例如何体现统一内存
+
+| 案例 | 关键观测 | 工程结论 |
+|---|---|---|
+| MiniMax H3 单机 | model load 89.1659 GiB；minimum available 约 8.6～8.7 GiB | 在线 FP8 只是让路径可行，余量仍很窄 |
+| MiniMax H3 双机 | rank 0 约 89.42 GiB，rank 1 约 41.44 GiB | pipeline 非对称，不能把总模型内存简单除以二 |
+| DeepSeek V4 8 GiB KV | startup available 最低约 11/12 GiB | 10 GiB KV 越过 reserve，8 GiB 才是 C6/4096 安全值 |
+| DeepSeek 官方 control 6 GiB KV | available 最低约 17/18 GiB，swap 不增长 | fixed KV bytes + host guard 比单一 utilization 更清楚 |
+
+这些数字来自不同模型与 workload，不能做容量排行榜；它们共同说明每个 rank 都要单独
+记录模型、KV、runtime 和宿主机余量。
+
 ## FP8 KV cache
 
 该模型的量化配置声明 8-bit KV scheme，vLLM 使用 `--kv-cache-dtype auto` 时实际解析为：

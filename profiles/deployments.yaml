@@ -1,0 +1,320 @@
+schema_version: 1
+snapshot_date: "2026-08-20"
+platform:
+  node_class: NVIDIA DGX Spark
+  nodes: 2
+  gpu_per_node: 1
+  gpu: NVIDIA GB10
+  compute_capability: "12.1"
+  architecture: aarch64
+  memory_model: unified
+  interconnect: 200_Gbps_RoCEv2_single_rail
+
+deployments:
+  - id: minimax-h3-single-fp8
+    evidence_date: "2026-08-04"
+    workload: video_generation_fl2va
+    model:
+      repo: MiniMaxAI/MiniMax-H3
+      checkpoint: FL2VA
+      revision: not_recorded_in_summary
+      on_disk_size_gib_approx: 135
+    runtime:
+      framework: vLLM-Omni
+      image: vllm/vllm-omni:minimax-h3
+      image_digest: sha256:e930db8e225162d01e17a49dddc43fd0e844208908d8356a028e5c4e7357696e
+      release_image_id: sha256:4ce6f2eac0a2cd68f5e0e41810bd5d69db88e613fad663b175f940fe1ab99525
+      vllm_omni: 0.1.dev2381+g310b4b477
+      vllm: 0.26.0
+    topology:
+      nodes: 1
+      parallelism: none
+    execution:
+      weight_quantization: online_dynamic_fp8_with_six_ignored_projections
+      attention: cudnn
+      compile: regional
+      cache: disabled_by_default
+    validation:
+      regression_tests_passed: 5
+      media_full_decode: true
+      performance_profile: true
+      quality_comparison: true
+      memory_profile: true
+    notes:
+      - Model and output license is separate from repository code license.
+
+  - id: minimax-h3-dual-ulysses
+    evidence_date: "2026-08-04"
+    workload: video_generation_fl2va
+    model:
+      repo: MiniMaxAI/MiniMax-H3
+      checkpoint: FL2VA
+      revision: not_recorded_in_summary
+    runtime:
+      framework: vLLM-Omni_with_custom_Ray_diffusion_executor
+      derived_image_id: sha256:09e6521356bbbb635048228d30e78a36c65352a48f7620c921d5aeff2d21b90b
+      upstream_image_digest: sha256:e930db8e225162d01e17a49dddc43fd0e844208908d8356a028e5c4e7357696e
+      companion_commit: 8bd7628dbdb51a0ea00c301ddcb1a098874870e4
+      accepted_local_base_image_id: sha256:2383642e221530d3dc26a8f8632c37e00470b051979f0845c2ec0ff9513e04b2
+    topology:
+      nodes: 2
+      sequence_parallel: ulysses_2
+      control_plane: Ray
+      tensor_data_plane: NCCL_over_RoCEv2
+    execution:
+      attention: cudnn
+      compile: regional
+      cache: disabled_by_default
+      optional_cache_profile: Cache_DiT_balanced
+    service:
+      historical_api_port: 8000
+    validation:
+      ray_nodes: 2
+      nccl_net_ib: true
+      simultaneous_gpu_activity: true
+      media_full_decode: true
+      performance_profile: true
+      quality_comparison: true
+
+  - id: qwen36-27b-nvfp4-tp1
+    evidence_date: "2026-08-04"
+    model:
+      repo: nvidia/Qwen3.6-27B-NVFP4
+      revision: 0893e1606ff3d5f97a441f405d5fc541a6bdf404
+    runtime:
+      framework: vLLM
+      image_tag: vllm/vllm-openai:nightly
+      image_id: not_retained
+    topology:
+      nodes: 1
+      tensor_parallel: 1
+    execution:
+      quantization: modelopt
+      max_model_len: 131072
+      gpu_memory_utilization: 0.75
+      max_num_seqs: 8
+      max_num_batched_tokens: 8192
+    service:
+      historical_api_port: 8888
+    validation:
+      llama_benchy_baseline: true
+      llama_benchy_concurrency: [1, 2, 4, 8]
+    provenance_gap:
+      - Full historical image ID was not retained.
+
+  - id: qwen36-27b-nvfp4-tp2
+    evidence_date: "2026-08-04"
+    model:
+      repo: nvidia/Qwen3.6-27B-NVFP4
+      revision: 0893e1606ff3d5f97a441f405d5fc541a6bdf404
+    runtime:
+      framework: vLLM
+      version: 0.26.1rc1.dev306
+      image_tag: vllm/vllm-openai:nightly
+      image_id: not_retained
+      distributed_executor: mp
+    topology:
+      nodes: 2
+      tensor_parallel: 2
+      pipeline_parallel: 1
+      transport: NCCL_over_RoCEv2
+    execution:
+      quantization: modelopt
+      max_model_len: 131072
+      gpu_memory_utilization: 0.75
+      max_num_seqs: 8
+      max_num_batched_tokens: 8192
+    service:
+      historical_api_port: 8000
+    validation:
+      llama_benchy_baseline: true
+      llama_benchy_concurrency: [1, 2, 4, 8]
+    provenance_gap:
+      - Full historical image ID was not retained.
+
+  - id: qwen36-35b-a3b-nvfp4-tp2
+    evidence_date: "2026-08-05"
+    model:
+      repo: nvidia/Qwen3.6-35B-A3B-NVFP4
+      revision: 491c2f1ea524c639598bf8fa787a93fed5a6fbce
+    runtime:
+      framework: vLLM
+      version: 0.26.1rc1.dev306
+      image_tag: vllm/vllm-openai:nightly
+      image_id: not_retained
+      distributed_executor: mp
+    topology:
+      nodes: 2
+      tensor_parallel: 2
+      pipeline_parallel: 1
+      transport: NCCL_over_RoCEv2
+    execution:
+      quantization: modelopt
+      max_model_len: 131072
+      gpu_memory_utilization: 0.75
+      max_num_seqs: 8
+      max_num_batched_tokens: 8192
+    service:
+      historical_api_port: 8888
+    validation:
+      llama_benchy_baseline: true
+      llama_benchy_concurrency: [1, 2, 4, 8]
+      second_run_label: b12x_filename_without_bound_backend_provenance
+
+  - id: deepseek-v4-abliterated-anemll
+    evidence_date: "2026-08-05"
+    model:
+      repo: sakamakismile/DeepSeek-V4-Flash-0731-Abliterated-NVFP4
+      revision: 4b15c44c31f8dacdf7b0c2fa42e20d03c5f5859b
+    runtime:
+      framework: vLLM_Anemll
+      version: 0.25.2.dev0+g752a3a504.d20260714
+      image: ghcr.io/anemll/dspark-vllm-gx10:0.1.1
+    topology:
+      nodes: 2
+      tensor_parallel: 2
+      transport: NCCL_over_RoCEv2
+    execution:
+      speculation: dspark
+      speculative_tokens: 7
+      draft_sampling: greedy
+      kv_cache_dtype: fp8
+      max_model_len: 32768
+      gpu_memory_utilization: 0.88
+      max_num_seqs: 4
+    service:
+      historical_api_port: 8888
+    validation:
+      bring_up_and_api: true
+      formal_benchmark_retained: false
+
+  - id: bigbang-v1-bf16-tp2
+    evidence_date: "2026-08-09"
+    model:
+      repo: endless-frontier/BigBang-v1
+      revision: fe313c9057ca2c51a07c7cf141915dc8cc3f620e
+      weight_dtype: bf16
+      shards: 15
+      weight_bytes: 71903645408
+    runtime:
+      framework: vLLM
+      version: 0.26.1rc1.dev306
+      image_tag: vllm/vllm-openai:nightly
+      image_id: not_retained
+      distributed_executor: mp
+    topology:
+      nodes: 2
+      tensor_parallel: 2
+      pipeline_parallel: 1
+      transport: NCCL_over_RoCEv2
+    execution:
+      max_model_len: 131072
+      gpu_memory_utilization: 0.75
+      max_num_seqs: 4
+      max_num_batched_tokens: 4096
+      reasoning_parser: qwen3
+      tool_call_parser: qwen3_coder
+    service:
+      historical_api_port: 8888
+    validation:
+      cache_shard_and_symlink_checks: true
+      bring_up_and_api: true
+      formal_benchmark_retained: false
+
+  - id: deepseek-v4-abliterated-vllm0271
+    evidence_date: "2026-08-17"
+    model:
+      repo: sakamakismile/DeepSeek-V4-Flash-0731-Abliterated-NVFP4
+      revision: 4b15c44c31f8dacdf7b0c2fa42e20d03c5f5859b
+      shards: 48
+    runtime:
+      framework: vLLM
+      image: infer-deploy/vllm:0.27.1-dsv4-nvfp4-ds-mla-sm121
+      vllm_source: c2141dd49c8b88eaa4ff480f5d5afd30369d6775
+      flashinfer_source: e6695831f237dc6bc022ddf29581ef272c862d7a
+      payload_sha256: 16ebe92097277557e224e74cef06c3cca9b3d3022842d8e0097292dc6a685115
+    topology:
+      nodes: 2
+      tensor_parallel: 2
+    execution:
+      kv_cache_profile: nvfp4_ds_mla
+      kv_cache_bytes: 8589934592
+      max_model_len: 4096
+      max_num_seqs: 6
+      max_num_batched_tokens: 8192
+      speculation: dspark_mtp5_probabilistic
+      target_moe: flashinfer_b12x_w4a16
+      draft_moe: marlin
+      graph_mode: full_decode_only_with_exact_12_eager
+      container_memory_limit: 108g
+    validation:
+      guidellm_256_to_256: [1, 2, 4, 6]
+      request_errors: 0
+      memory_guard: true
+      kernel_microbenchmarks: true
+
+  - id: deepseek-v4-official-vllm0271-control
+    evidence_date: "2026-08-18"
+    model:
+      repo: deepseek-ai/DeepSeek-V4-Flash-0731
+      revision: 9e165c30e2704aec5d9d593cce3eebd58bbef1cb
+      weight_format: fp8_dense_and_native_mxfp4_experts
+    runtime:
+      framework: vLLM
+      image: infer-deploy/vllm:0.27.1-dsv4-nvfp4-ds-mla-sm121
+      vllm_source: d337c7046ea9670093e5e9ffe3179fc33b8e287c
+      flashinfer_source: 6398edbbc6796d81781bd54827be860b65d8f38b
+      payload_sha256: b08166b8696faa7317fbab96cd5dd64338f96e402fb7e7b829c8968319fc2314
+    topology:
+      nodes: 2
+      tensor_parallel: 2
+    execution:
+      kv_cache_profile: fp8_ds_mla
+      kv_cache_bytes: 6442450944
+      max_model_len: 4096
+      max_num_seqs: 6
+      speculation: dspark_mtp5_probabilistic
+      target_moe: flashinfer_b12x_w4a16
+      draft_moe: flashinfer_b12x_w4a16
+      prompt_policy: thinking_low
+    validation:
+      cold_jit_run_retained: true
+      canonical_hot_run: true
+      request_errors: 0
+      numerical_all_close: true
+      memory_guard: true
+
+  - id: qwen38-27b-nvfp4-mtp-tp2
+    evidence_date: "2026-08-19"
+    model:
+      repo: unsloth/Qwen3.8-27B-NVFP4
+      revision: 7d6f8d4d72f56b92b3cdbf22f156b90e1bab0108
+    runtime:
+      framework: vLLM
+      version: 0.27.2rc1.dev110+gacb0f1dcd
+      image_tag: vllm/vllm-openai:nightly
+      image_id: sha256:177a406d7cb2a11338bcd8c67ab7590b330799cdc5a3193ac0ca40728ea2501b
+      distributed_executor: mp
+    topology:
+      nodes: 2
+      tensor_parallel: 2
+      pipeline_parallel: 1
+      transport: NCCL_over_RoCEv2
+    execution:
+      weight_loader: compressed_tensors_auto
+      kv_cache_dtype: fp8_e4m3
+      max_model_len: 262144
+      gpu_memory_utilization: 0.75
+      max_num_seqs: 8
+      max_num_batched_tokens: 8192
+      speculation: qwen35_mtp
+      speculative_tokens: 1
+    service:
+      default_api_port: 8888
+    validation:
+      backend_resolution: true
+      memory_profile_with_and_without_mtp: true
+      smoke_output_tokens: 96
+      draft_tokens: 54
+      accepted_draft_tokens: 41
+      standardized_throughput_sweep: false

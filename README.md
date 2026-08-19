@@ -1,163 +1,138 @@
-# 两台 DGX Spark 跑一个大模型：双机推理部署实战
+# DGX Spark 推理部署实战档案
 
-一套经过真实双机验证、可检查、可复现的 NVIDIA DGX Spark 推理部署模板。
+这是我在一对 NVIDIA DGX Spark 上持续部署和验证大模型的实践记录。仓库不再只描述
+Qwen3.8，而是覆盖 2026 年 8 月这轮实验中留下可核验材料的 MiniMax H3、Qwen3.6、
+BigBang-v1、DeepSeek V4 Flash 和 Qwen3.8。
 
-这个仓库记录我在两台 ARM64 DGX Spark 上，把模型缓存、容器镜像、RoCEv2、NCCL、
-vLLM 原生多节点执行器、NVFP4、FP8 KV cache 和 Qwen MTP 串成一个可用服务的过程。
-重点不是“一条神奇命令”，而是把每个容易踩坑的动态条件都做成启动前检查。
+这里同时保留两类内容：
+
+- `scripts/` 是当前可直接复用的双机 vLLM TP=2 模板，默认 profile 为
+  Qwen3.8-27B-NVFP4 + MTP。
+- `docs/`、`benchmarks/` 和 `profiles/` 是多模型部署历史、实测结果与复现边界。
 
 > [!IMPORTANT]
-> 仓库不包含模型权重、Hugging Face 凭据、容器镜像或生成内容。模型与镜像许可证
-> 需要由使用者单独确认。
+> 仓库不包含模型权重、Hugging Face 凭据、容器镜像、私有主机信息或生成内容。
+> 模型、镜像和生成结果各自受其许可证约束；MiniMax H3 尤其需要先阅读其模型许可证。
 
-## 已验证配置
+## 实践全景
 
-以下结果来自 2026-08-19 的一次双机验收，不是厂商基准，也不代表其他镜像版本必然相同。
+以下“验证”只描述留存证据，不把“有启动脚本”自动等同于“完成正式 benchmark”。
+详细证据等级见 [验证矩阵](docs/VALIDATION.md)。
 
-| 项目 | 实测配置 |
+| 时间 | 模型 / 工作负载 | 拓扑与运行时 | 留存验证 |
+|---|---|---|---|
+| 08-03～08-04 | MiniMax H3 FL2VA | 单 Spark，vLLM-Omni，在线 FP8 | 5 项补丁测试、完整媒体解码、性能/质量/内存记录 |
+| 08-03～08-04 | MiniMax H3 FL2VA | 双 Spark，Ray + Ulysses SP=2 + NCCL/RoCE | 两 rank、双 GPU、媒体验收；约 2.3× 单机速度 |
+| 08-04 | Qwen3.6-27B-NVFP4 | 单 Spark TP=1，vLLM | llama-benchy prefill/decode 与 C1/C2/C4/C8 |
+| 08-04 | Qwen3.6-27B-NVFP4 | 双 Spark TP=2，vLLM 原生 `mp` | 与 TP=1 同 workload 对照 |
+| 08-05 | Qwen3.6-35B-A3B-NVFP4 | 双 Spark TP=2，vLLM 原生 `mp` | dense/MoE 服务基准，C1 decode 约 98 tok/s |
+| 08-05 | DeepSeek V4 Flash Abliterated NVFP4 | 双 Spark TP=2，Anemll vLLM 0.25 系 | DSpark-7、FP8 KV 的首个可运行配方；无独立正式结果表 |
+| 08-09 | BigBang-v1 BF16 | 双 Spark TP=2，vLLM 原生 `mp` | 15 shard/revision/RoCE/API 部署记录；无留存性能基准 |
+| 08-17～08-18 | DeepSeek V4 Flash | 双 Spark TP=2，自建 vLLM 0.27.1 | 量化、KV、MoE、CUDA Graph、MTP 的多轮对照与 GuideLLM |
+| 08-19 | Qwen3.8-27B-NVFP4 | 双 Spark TP=2，vLLM 0.27.2 + MTP | 后端、内存、FP8 KV、MTP 接受率和真实请求验收 |
+
+按日期串联的演进过程见 [部署历史](docs/HISTORY.md)，按模型展开见：
+
+- [MiniMax H3：单机兼容到双机扩散并行](docs/cases/MINIMAX-H3.md)
+- [Qwen3.6：27B TP1/TP2 与 35B-A3B MoE](docs/cases/QWEN36.md)
+- [BigBang-v1：71.9 GB BF16 双机 TP](docs/cases/BIGBANG-V1.md)
+- [DeepSeek V4 Flash：从 Anemll 到 vLLM 0.27 自建路径](docs/cases/DEEPSEEK-V4-FLASH.md)
+- [Qwen3.8 NVFP4 + MTP 验收](docs/QWEN38-NVFP4-MTP.md)
+
+## 最值得复用的结论
+
+1. **先固定证据，再谈性能。** 可移动的 nightly tag 不是版本；至少同时记录 image ID、
+   模型 revision、运行参数和原始结果。
+2. **GB10 要按统一内存评估。** 权重、KV cache、activation、CUDA Graph、JIT 和宿主机
+   都竞争同一内存池，不能只看传统 `nvidia-smi memory.total`。
+3. **两机路径必须显式绑定 RoCE。** NIC、HCA 和每节点动态 GID 都要分别检查；日志里应
+   看到 NCCL `NET/IB`。
+4. **不同模型不能套同一量化参数。** Qwen3.6 的 NVIDIA checkpoint 使用 `modelopt`，
+   Qwen3.8 Unsloth checkpoint 则必须让 `compressed-tensors` 自动解析。
+5. **speculative decoding 需要测接受率和迭代成本。** “加载了 draft 权重”不等于
+   端到端更快；DeepSeek 的 MTP-5 和 Qwen 的单层 MTP 也不是同一种 profile。
+6. **冷启动、首请求、热态必须分开。** JIT、autotune、compile 和 CUDA Graph capture
+   会严重污染第一次观测。
+7. **证据不完整就明确降级表述。** BigBang 和早期 DeepSeek 配方保留了成功部署路径，
+   但没有可发布的正式 benchmark，因此不补写吞吐数字。
+
+## 基准摘要
+
+这些数字只在同模型、同 workload、同口径内比较。不要横向比较文本 tok/s 和视频秒数。
+完整表格与限制见 [基准与对照](docs/BENCHMARKS.md)。
+
+| 对照 | 代表结果 |
 |---|---|
-| 硬件 | 2× DGX Spark，每节点 1× GB10、约 121.69 GiB 可见统一内存 |
-| 架构 | Linux ARM64，CUDA Compute Capability 12.1（SM121） |
-| 节点互联 | 单条 200 Gb/s RoCEv2 fabric，NCCL `NET/IB` |
-| 运行时 | vLLM `0.27.2rc1.dev110+gacb0f1dcd`，CUDA 13 |
-| 镜像 | `vllm/vllm-openai:nightly`，通过完整 image ID 锁定 |
-| 模型 | `unsloth/Qwen3.8-27B-NVFP4` |
-| 并行 | TP=2、PP=1，vLLM 原生多节点 `mp`，不依赖 Ray |
-| 量化 | `compressed-tensors` 自动识别；NVFP4 GEMM 使用 FlashInfer CUTLASS |
-| KV cache | FP8 E4M3 |
-| MTP | Qwen3.5 原生 MTP，1 个 draft token |
-| API | 默认仅监听 Head 的 `127.0.0.1:8888` |
+| Qwen3.6-27B TP1 → TP2，TG128 C1 | 12.21 → 21.66 tok/s，约 1.77× |
+| Qwen3.6-27B TP1 → TP2，PP2048 C1 | 1208.62 → 1847.89 tok/s，约 1.53× |
+| Qwen3.6-35B-A3B TP2，TG128 | C1 97.97 tok/s；C8 aggregate 243.73 tok/s |
+| DeepSeek V4 Abliterated，最终 hybrid | C1/C2/C4/C6 为 28.95/41.58/51.22/61.74 output tok/s |
+| DeepSeek V4 官方 checkpoint 热态控制 | C6 97.20 output tok/s；Anemll 记录为 108.18 |
+| MiniMax H3 双机 full-compute warm | 46.574 s；相近单机基线约 154.956 s |
+| MiniMax H3 双机 balanced Cache-DiT warm | 30.578 s；该模式为近似缓存，不是无损 |
 
-## 一次请求如何跨越两台机器
+机器可读摘要保存在 [`benchmarks/`](benchmarks/README.md)。
 
-```mermaid
-flowchart LR
-    C[OpenAI-compatible client] --> A[Head API :8888]
-    A --> R0[TP rank 0 / GB10]
-    R0 <--> |NCCL over RoCEv2| R1[TP rank 1 / GB10]
-    R0 --> A
-    A --> C
-```
+## 当前可复用模板：Qwen3.8 双机 TP=2
 
-这不是两个独立副本：同一个模型实例被切成两个 Tensor Parallel rank，每一步推理都需要
-两台机器参与。管理流量可以走普通 LAN/SSH，collective 通信则显式绑定专用 RoCE 网卡。
+模板使用两节点各一张 GB10、vLLM 原生多节点 `mp`、单条 RoCEv2 fabric、FP8 KV cache
+和 Qwen MTP。API 默认只监听 Head 的 `127.0.0.1:8888`。
 
-## 为什么做成这个仓库
-
-实际部署里，最费时间的通常不是模型下载，而是以下细节：
-
-- 同一个镜像 tag 在两台机器上不一定指向同一个 image ID。
-- Hugging Face 路径相同不代表 revision 和 blob 一致。
-- RoCEv2 GID index 会变化，不能把某次探测结果永久写死。
-- 网卡名和 HCA 名区分大小写，NCCL 自动选网经常选到管理网络。
-- GB10 是统一内存，`docker stats` 和传统独显的 `nvidia-smi memory.total` 都不能单独解释容量。
-- 模型声明 `compressed-tensors` 时强制传 `--quantization modelopt` 会在启动阶段失败。
-- JSON 参数经 SSH 远程 shell 容易丢引号；MTP 使用独立 CLI 参数更稳妥。
-- “缓存里有 MTP 权重”不等于已启用 MTP，必须看到 resolved speculative config 和接受率指标。
-
-这些检查都已经进入脚本，而不是只留在文档里。
-
-## 快速开始
-
-前提：两节点均已安装 Docker/NVIDIA runtime，SSH 免密可用，模型缓存和镜像已准备好，
-RoCE 链路处于 `ACTIVE / LINK_UP`。
-
-```bash
-git clone <your-repository-url>
+~~~bash
+git clone https://github.com/<owner>/dgx-spark-dual-node-inference.git
 cd dgx-spark-dual-node-inference
 cp .env.example .env
-# 编辑 .env：SSH 用户、模型路径、接口/HCA、镜像 ID 等。
+# 编辑所有 CHANGE_ME，并确认 image ID、模型 revision 和网络设备。
 
 make audit
 make preflight
 make up
 make wait
 make smoke
-```
-
-如果模型只在 Head 上：
-
-```bash
-make sync-model
-make verify-model
-```
-
-查看状态、内存和 MTP 指标：
-
-```bash
-make status
 make memory
 make mtp-metrics
-```
+~~~
 
-停止且只删除本仓库创建的两个服务容器：
+如果模型只在 Head 缓存：
 
-```bash
+~~~bash
+make sync-model
+make verify-model
+~~~
+
+停止时只删除本模板创建的两个服务容器：
+
+~~~bash
 make down
-```
+~~~
 
-## 安全默认值
-
-API 默认只绑定 `127.0.0.1:8888`，没有 API key 时不会允许配置为非 loopback 地址。
-远程客户端可以使用 SSH tunnel：
-
-```bash
-ssh -L 8888:127.0.0.1:8888 user@spark-head
-```
-
-如果确实需要监听局域网地址，必须同时设置：
-
-```dotenv
-API_BIND=10.0.0.10
-ALLOW_REMOTE_API=true
-API_KEY=至少二十四个字符的随机密钥
-```
-
-完整边界见 [docs/SECURITY.md](docs/SECURITY.md)。
-
-## 实测内存与 MTP 取舍
-
-启用 MTP 后，每节点主模型加 draft head 约占 11.07 GiB；vLLM 在 75% 内存预算下为
-FP8 KV cache 分配约 73.8–74.0 GiB。两节点合起来并不是一个共享内存池，每个 TP rank
-各自保存自己的权重和 cache 分片。
-
-| 指标 | 未启用 MTP | 启用 1-token MTP |
-|---|---:|---:|
-| 每节点模型内存 | 约 10.67 GiB | 约 11.07 GiB |
-| Head KV cache | 约 74.64 GiB | 约 73.97 GiB |
-| Worker KV cache | 约 74.27 GiB | 约 73.81 GiB |
-| 全局 KV token 容量 | 约 4,676,407 | 约 4,305,153 |
-| 262,144-token 理论 KV 并发 | 约 17.84× | 约 16.42× |
-
-一次 96-token 输出验收后，MTP 累计接受 41/54 个 draft tokens，约 75.9%。这是功能
-验收样本，不是吞吐基准。更多解释见 [docs/QWEN38-NVFP4-MTP.md](docs/QWEN38-NVFP4-MTP.md)
-和 [docs/MEMORY.md](docs/MEMORY.md)。
+历史记录中的 `8000` 是当时的实验端口，不是集群约束。这个仓库的新部署默认使用
+`8888`，启动前仍会检查占用。
 
 ## 仓库结构
 
 | 路径 | 用途 |
 |---|---|
-| `.env.example` | 已验证 Qwen3.8 案例的可编辑配置 |
-| `scripts/preflight.sh` | 镜像、模型、架构、RoCE/GID、设备与端口检查 |
-| `scripts/sync-model-cache.sh` | 可续传地同步 Hugging Face 模型缓存 |
-| `scripts/verify-model-sync.sh` | 两节点逐文件 checksum 验证 |
-| `scripts/up.sh` | 启动 Worker rank 1 和 Head rank 0/API |
-| `scripts/wait-ready.sh` | 等待冷启动并在失败时收集两侧日志 |
-| `scripts/smoke-chat.sh` | OpenAI Chat Completions 验收请求 |
-| `scripts/memory-report.sh` | 统一内存、权重、KV cache 与 CUDA Graph 报告 |
-| `scripts/mtp-metrics.sh` | MTP drafted/accepted token 指标 |
-| `scripts/public-audit.sh` | 发布前语法、密钥、主机身份和大文件检查 |
-| `docs/` | 架构、网络、内存、安全、复现与排障记录 |
+| [`docs/HISTORY.md`](docs/HISTORY.md) | 从单机兼容、双机并行到 MTP 的部署时间线 |
+| [`docs/VALIDATION.md`](docs/VALIDATION.md) | 每个案例到底验证到了哪一层 |
+| [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | 可比结果、计算口径和不可比边界 |
+| [`docs/cases/`](docs/cases/) | 各模型的配置、故障链、结论与证据缺口 |
+| [`profiles/deployments.yaml`](profiles/deployments.yaml) | 模型、revision、镜像、并行和关键参数清单 |
+| [`benchmarks/`](benchmarks/) | 精简、可审计的 CSV 测量摘要 |
+| [`scripts/`](scripts/) | 当前 Qwen3.8 双机 vLLM 模板及诊断工具 |
+| [`.env.example`](.env.example) | 当前模板的安全占位配置 |
 
-## 范围与限制
+## 安全与复现边界
 
-- 模板固定为两节点、每节点一张 GPU、TP=2；不是任意规模编排器。
-- 已验证案例使用 vLLM；SGLang、TensorRT-LLM 和原生 PyTorch 的多节点参数不同。
-- MTP speculative decoding 下，当前 vLLM 不支持 `min_p` 和 `logit_bias`。
-- 脚本默认两节点模型缓存使用相同绝对路径，但仍会分别校验 revision 与断链。
-- 更换模型、镜像 digest、量化格式、上下文长度或网络 fabric 后，应重新执行完整验收。
-- 这里记录的是一套实验室部署经验，不是生产 SLA、安全审计或上游支持承诺。
+- API 默认 loopback；非 loopback 必须显式启用并设置至少 24 字符的 API key。
+- 不提交 `.env`、token、私有 DNS、模型权重、JIT cache、运行日志或生成媒体。
+- 旧实验只记录可核验事实；缺失的历史 image ID 不用当前 nightly ID 代替。
+- MiniMax H3 的代码仓库许可证与模型/输出许可证不同，生成前必须单独确认授权。
+- 这里是实验室实测档案，不是厂商 benchmark、生产 SLA 或任意硬件的支持保证。
+
+更多内容见 [安全边界](docs/SECURITY.md)、[复现方法](docs/REPRODUCIBILITY.md)、
+[网络实战](docs/NETWORKING.md) 和 [统一内存](docs/MEMORY.md)。
 
 ## License
 
-仓库中的脚本与文档采用 MIT License。模型、权重、容器镜像及其输出遵循各自许可证。
+本仓库脚本与文档采用 MIT License。模型、权重、镜像及其输出遵循各自许可证。
