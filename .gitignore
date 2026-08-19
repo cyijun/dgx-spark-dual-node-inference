@@ -1,0 +1,7 @@
+.env
+logs/
+artifacts/
+*.log
+*.pid
+*.jsonl
+.DS_Store
