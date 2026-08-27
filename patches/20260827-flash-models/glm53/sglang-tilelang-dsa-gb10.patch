@@ -1,0 +1,17 @@
+diff --git a/python/sglang/kernels/ops/attention/dsa/tilelang_kernel.py b/python/sglang/kernels/ops/attention/dsa/tilelang_kernel.py
+index 2a84ac4..617019e 100644
+--- a/python/sglang/kernels/ops/attention/dsa/tilelang_kernel.py
++++ b/python/sglang/kernels/ops/attention/dsa/tilelang_kernel.py
+@@ -268,9 +268,9 @@ def sparse_attention_fwd_kernel_v1(
+     kv_group=1,
+     sm_scale=None,
+     is_causal=True,
+-    block_I=64,
+-    num_stages=2,
+-    threads=256,
++    block_I=32,
++    num_stages=1,
++    threads=128,
+     return_lse=False,
+ ):
+     assert (

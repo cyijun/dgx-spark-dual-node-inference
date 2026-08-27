@@ -1,0 +1,26 @@
+diff --git a/python/sglang/srt/layers/attention/qsa/kernel.py b/python/sglang/srt/layers/attention/qsa/kernel.py
+index d67d16c..10ed9a1 100644
+--- a/python/sglang/srt/layers/attention/qsa/kernel.py
++++ b/python/sglang/srt/layers/attention/qsa/kernel.py
+@@ -335,7 +335,5 @@ def qsa_sparse_attention_reference(
+         valid = token_slots[row] >= 0
+-        slots = token_slots[row, valid].long()
+-        if slots.numel() == 0:
+-            outputs.append(torch.zeros_like(q[row]))
+-            continue
++        # Static selection is CUDA-Graph-safe; boolean indexing calls nonzero.
++        slots = token_slots[row].long().clamp_min(0)
+         keys = k_cache.index_select(0, slots).repeat_interleave(repeats, dim=1)
+         values = v_cache.index_select(0, slots).repeat_interleave(repeats, dim=1)
+@@ -342,6 +340,9 @@ def qsa_sparse_attention_reference(
+         scores = torch.einsum("hd,khd->hk", q[row].float(), keys.float()) * scale
++        scores = scores.masked_fill(~valid.unsqueeze(0), float("-inf"))
+         probabilities = torch.softmax(scores, dim=-1)
+-        outputs.append(
+-            torch.einsum("hk,khd->hd", probabilities, values.float()).to(q.dtype)
++        output = torch.einsum(
++            "hk,khd->hd", probabilities, values.float()
+         )
++        output = output.to(q.dtype)
++        outputs.append(torch.where(valid.any(), output, torch.zeros_like(output)))
+     return torch.stack(outputs)

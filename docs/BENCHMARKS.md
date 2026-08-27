@@ -44,14 +44,17 @@ llama-benchy 表。
 ## 2026-08-27 Flash 模型：完整 PP/TG sweep
 
 三套服务统一使用 llama-benchy `0.4.0`、exact TG128、关闭 prefix cache、每点 3 次。
-GLM 是 vLLM；两个 Qwen 是 SGLang，因此表格用于记录各 profile，不构成框架或量化 A/B。
+GLM 同时保留旧 vLLM 和新 SGLang 原生 FP4 profile；Qwen NVFP4 同时保留 autotune
+关闭/开启结果。表格用于记录各 profile，不构成跨模型量化 A/B。
 
 ### 单并发 baseline
 
 | 模型 | PP512 | PP512 TTFT | PP2048 | PP2048 TTFT | PP512 后 TG128 | PP2048 后 TG128 |
 |---|---:|---:|---:|---:|---:|---:|
-| GLM-5.3 Flash NVFP4 | 741.92 | 694.56 ms | 1380.07 | 1487.71 ms | 25.75 | 24.51 |
-| Qwen3.8 Flash-Next NVFP4 | 1056.13 | 491.11 ms | 2151.06 | 955.13 ms | 26.58 | 24.98 |
+| GLM-5.3 Flash NVFP4，旧 vLLM + MTP | 741.92 | 694.56 ms | 1380.07 | 1487.71 ms | 25.75 | 24.51 |
+| GLM-5.3 Flash NVFP4，SGLang native、无 MTP | 745.50 | 690.06 ms | 1522.76 | 1347.47 ms | 14.72 | 14.58 |
+| Qwen3.8 Flash-Next NVFP4，autotune off | 1056.13 | 491.11 ms | 2151.06 | 955.13 ms | 26.58 | 24.98 |
+| Qwen3.8 Flash-Next NVFP4，autotune on | 732.43 | 729.35 ms | 2157.12 | 955.21 ms | 30.13 | 22.64 |
 | Qwen3.8 Flash-Next FP8 | 898.38 | 582.31 ms | 1905.23 | 1082.69 ms | 25.93 | 19.67 |
 
 除 TTFT 外单位均为 tok/s。相同模型在 PP512 和 PP2048 后的 decode 数字不同，说明短窗口
@@ -61,16 +64,20 @@ GLM 是 vLLM；两个 Qwen 是 SGLang，因此表格用于记录各 profile，�
 
 | 模型 | C1 | C2 | C4 | C8 |
 |---|---:|---:|---:|---:|
-| GLM-5.3 Flash NVFP4 | 24.65 | 36.94 | 57.75 | 50.21 |
-| Qwen3.8 Flash-Next NVFP4 | 23.30 | 41.07 | 68.16 | 93.66 |
+| GLM-5.3 Flash NVFP4，旧 vLLM + MTP | 24.65 | 36.94 | 57.75 | 50.21 |
+| GLM-5.3 Flash NVFP4，SGLang native、无 MTP | 14.72 | 27.50 | — | — |
+| Qwen3.8 Flash-Next NVFP4，autotune off | 23.30 | 41.07 | 68.16 | 93.66 |
+| Qwen3.8 Flash-Next NVFP4，autotune on | 29.54 | 43.63 | 56.24 | 77.80 |
 | Qwen3.8 Flash-Next FP8 | 28.07 | 39.69 | 52.29 | 80.64 |
 
 GLM 的 C8 超过 `max_num_seqs=4`，会排队；其 TTFT 从 C4 的 1445.62 ms 增至 C8 的
 7659.85 ms。因此 C8 下降是 profile 容量边界，不应解读成硬件的最佳吞吐。
 
-Qwen NVFP4/FP8 的末批 MTP 接受率分别为 52.83%/53.59%，平均接受长度为 2.58/2.61；
-GLM 整轮累计接受 4074/4822 个 draft token（84.49%）。Prometheus gauge 与累计 counter
-口径不同。机器可读数据见
+Qwen autotune 对低并发有收益，但 C4/C8 回归；profile 选择对 shape 敏感。Qwen
+NVFP4/FP8 的末批 MTP 接受率分别约为 52.8%/53.6%，平均接受长度为 2.58/2.61。GLM
+旧 vLLM 整轮累计接受 4074/4822 个 draft token（84.49%），新 SGLang profile 无 MTP，
+因此不能把 decode 差异归因于 FP4 kernel。Prometheus gauge 与累计 counter 口径不同。
+机器可读数据见
 [`benchmarks/flash-models-20260827.csv`](../benchmarks/flash-models-20260827.csv)。
 
 ## DeepSeek V4：把接受率与 runtime 分开

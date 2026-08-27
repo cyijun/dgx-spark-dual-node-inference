@@ -93,15 +93,18 @@
 
 - 三个 checkpoint 均固定 revision，父镜像使用 digest，派生镜像保留 image ID；
 - 两节点分别校验缓存、RDMA ACTIVE、RoCEv2 GID、rank/world size 和 NCCL `NET/IB`；
-- GLM 保存 H=32/top-k=2176 sparse MLA 补丁及 AOT verifier；
+- GLM 保存当前 SGLang TileLang `32/1/128` 补丁与 verifier；旧 H=32 sparse MLA AOT
+  只作为 vLLM 失败路线留档；
 - Qwen 保存只对 SM121 生效的 QSA physical-slot reference fallback；
-- 三个服务都完成 health、model identity、真实 Chat Completions 和 MTP counter 变化；
+- 三个服务都完成 health、model identity 和真实 Chat Completions；两个 Qwen profile 还验证
+  MTP counter，GLM 新 SGLang profile 本轮未启用 MTP；
 - llama-benchy `0.4.0` 固定 PP512/2048、TG128、C1/C2/C4/C8，每点 3 次；
 - 保存 aggregate/per-request throughput、TTFT、MTP metrics 与内存最低值；
 - FP8 使用双节点 4 GiB watchdog，完整启动和 benchmark 均未触发。
 
-限制：GLM C8 超过 `max_num_seqs=4` 并发生排队；SGLang 的接受率 gauge 是末批值，而
-GLM/vLLM 保存的是整轮 drafted/accepted 累计值，二者不能直接比较。
+限制：GLM 旧 vLLM C8 超过 `max_num_seqs=4` 并发生排队；旧 vLLM MTP 与新 SGLang
+无 MTP 的 decode 不能直接比较。SGLang 的接受率 gauge 是末批值，而旧 GLM/vLLM 保存的
+是整轮 drafted/accepted 累计值，口径也不同。
 
 ## 发布新数字前的检查单
 

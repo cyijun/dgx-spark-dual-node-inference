@@ -30,7 +30,7 @@ BigBang-v1、DeepSeek V4 Flash、GLM-5.3 Flash 和 Qwen3.8。
 | 08-09 | BigBang-v1 BF16 | 双 Spark TP=2，vLLM 原生 `mp` | 15 shard/revision/RoCE/API 部署记录；无留存性能基准 |
 | 08-17～08-18 | DeepSeek V4 Flash | 双 Spark TP=2，自建 vLLM 0.27.1 | 量化、KV、MoE、CUDA Graph、MTP 的多轮对照与 GuideLLM |
 | 08-19 | Qwen3.8-27B-NVFP4 | 双 Spark TP=2，vLLM 0.27.2 + MTP | 后端、内存、FP8 KV、MTP 接受率和真实请求验收 |
-| 08-27 | GLM-5.3 Flash NVFP4；Qwen3.8 Flash-Next FP8/NVFP4 | 双 Spark TP=2，vLLM/SGLang + MTP | SM121 补丁、双节点内存守护、PP/TG 与 C1/C2/C4/C8 完整 sweep |
+| 08-27 | GLM-5.3 Flash NVFP4；Qwen3.8 Flash-Next FP8/NVFP4 | 双 Spark TP=2，SGLang/vLLM | 原生 FP4、NoPE/QSA 补丁、autotune、Graph 负例与双节点内存守护 |
 
 按日期串联的演进过程见 [部署历史](docs/HISTORY.md)，按模型展开见：
 
@@ -39,7 +39,7 @@ BigBang-v1、DeepSeek V4 Flash、GLM-5.3 Flash 和 Qwen3.8。
 - [BigBang-v1：71.9 GB BF16 双机 TP](docs/cases/BIGBANG-V1.md)
 - [DeepSeek V4 Flash：从 Anemll 到 vLLM 0.27 自建路径](docs/cases/DEEPSEEK-V4-FLASH.md)
 - [Qwen3.8 NVFP4 + MTP 验收](docs/QWEN38-NVFP4-MTP.md)
-- [GLM-5.3 / Qwen3.8 Flash：TP、EP、QSA、MTP 与统一内存](docs/cases/GLM53-QWEN38-FLASH.md)
+- [GLM-5.3 / Qwen3.8 Flash：GB10 原生 NVFP4 路线](docs/cases/GLM53-QWEN38-FLASH.md)
 
 ## 最值得复用的结论
 
@@ -61,6 +61,8 @@ BigBang-v1、DeepSeek V4 Flash、GLM-5.3 Flash 和 Qwen3.8。
    320，不能整除 block 128；Attention TP=2 + MoE EP=2 才保持 checkpoint 语义。
 9. **内存保护要覆盖两个节点。** 权重读取、JIT 和 API 启动的峰值不一定出现在 Head；
    双节点 watchdog 应以任一节点的 `MemAvailable` 作为熔断条件。
+10. **kernel 加载或 Graph capture 成功不等于输出正确。** GLM 的 vLLM NoPE 和 Qwen 的
+    graph-safe QSA 都到达了 kernel/capture 阶段，却被真实回答或 coherence test 否决。
 
 ## 基准摘要
 
@@ -76,8 +78,8 @@ BigBang-v1、DeepSeek V4 Flash、GLM-5.3 Flash 和 Qwen3.8。
 | DeepSeek V4 官方 checkpoint 热态控制 | C6 97.20 output tok/s；Anemll 记录为 108.18 |
 | MiniMax H3 双机 full-compute warm | 46.574 s；相近单机基线约 154.956 s |
 | MiniMax H3 双机 balanced Cache-DiT warm | 30.578 s；该模式为近似缓存，不是无损 |
-| GLM-5.3 Flash NVFP4，PP2048 / TG128 C1 | 1380.07 / 24.51 tok/s；MTP 累计接受率 84.49% |
-| Qwen3.8 Flash-Next NVFP4，PP2048 / TG128 C8 | prefill C1 2151.06；decode aggregate 93.66 tok/s |
+| GLM-5.3 Flash NVFP4，SGLang 原生 FP4 | PP2048 1522.76 tok/s；TG128 C1 14.72（本轮无 MTP） |
+| Qwen3.8 Flash-Next NVFP4，FlashInfer autotune | TG128 C1/C2 30.13/43.63；C4/C8 需关闭 autotune 或另行调优 |
 | Qwen3.8 Flash-Next FP8，PP2048 / TG128 C8 | prefill C1 1905.23；decode aggregate 80.64 tok/s |
 
 机器可读摘要保存在 [`benchmarks/`](benchmarks/README.md)。

@@ -59,8 +59,9 @@ available，随后 swap thrashing 并失去响应。
 - multimodal processor cache 为 0；
 - eager execution。
 
-weights + non-Torch 由约 93.93 GiB 降为 91.02 GiB，Head 全程最低 available 12.13 GiB。
-这里的关键不是单个参数，而是避免模型预算与第二份多模态/API 尾部共同越过物理内存。
+旧 vLLM safety profile 把 weights + non-Torch 由约 93.93 GiB 降为 91.02 GiB；当前 SGLang
+原生 FP4 profile 的 Head/Worker 最低 available 为 10.82/11.76 GiB。这里的关键不是单个
+参数，而是避免模型预算与第二份多模态/API 尾部共同越过物理内存。
 
 ### Qwen Flash NVFP4 与 FP8
 
@@ -71,8 +72,8 @@ weights + non-Torch 由约 93.93 GiB 降为 91.02 GiB，Head 全程最低 availa
 | 静态内存比例 | 0.85 | 0.89 |
 | Mamba cache entries | 213 | 64 |
 | KV token capacity | 1,189,248 | 129,856 |
-| Head 最低 available | 13.68 GiB | 8.56 GiB |
-| Worker 最低 available | 未由旧 watchdog 全程记录 | 10.14 GiB |
+| Head 最低 available | 12.33 GiB（autotune） | 8.56 GiB |
+| Worker 最低 available | 13.61 GiB（autotune） | 10.14 GiB |
 
 FP8 的 0.85 profile 没有 OOM，而是 SGLang profiler 主动报告最小可行比例为 0.852 并退出。
 提高到 0.89 后约有 4.4 GiB 用于 Mamba/KV，同时仍给 Linux/JIT 留出约 8～10 GiB 最低
