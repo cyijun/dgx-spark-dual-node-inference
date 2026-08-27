@@ -27,6 +27,7 @@
 | DeepSeek V4 Anemll 首通 | ⚠️ | ✅ | ✅ | ✅ | ❌ | 只有部署配方，无独立正式结果表 |
 | DeepSeek V4 vLLM 0.27 | ✅ | ✅ | ✅ | ✅ | ✅ | 与 Anemll 仍是跨 runtime generation 对照 |
 | Qwen3.8 NVFP4 + MTP | ✅ | ✅ | ✅ | ✅ | ⚠️ | 有功能/内存/MTP 指标，无标准化吞吐 sweep |
+| GLM-5.3 / Qwen3.8 Flash | ✅ | ✅ | ✅ | ✅ | ✅ | 不同模型和 runtime 仅可各自复现，不能当量化 A/B 排行 |
 
 图例：✅ 有明确留存证据；⚠️ 部分证据或有重要限制；❌ 没有可发布证据。
 
@@ -77,7 +78,7 @@
 - checkpoint layer microbenchmark 与数值 all-close；
 - true FP4 KV、物理 FP8 DS-MLA KV、target/draft MoE 路径对照。
 
-### Qwen3.8
+### Qwen3.8-27B
 
 - 两节点 image ID、revision、RDMA/GID 与端口 preflight；
 - 日志确认实际 attention/GEMM/KV/GDN/collective backend；
@@ -87,6 +88,20 @@
 
 尚未保存固定 prompt、输入长度、输出长度、并发、warmup 和测量窗口齐全的吞吐 sweep，
 因此 75.9% 只描述这次功能样本的接受率。
+
+### GLM-5.3 / Qwen3.8 Flash
+
+- 三个 checkpoint 均固定 revision，父镜像使用 digest，派生镜像保留 image ID；
+- 两节点分别校验缓存、RDMA ACTIVE、RoCEv2 GID、rank/world size 和 NCCL `NET/IB`；
+- GLM 保存 H=32/top-k=2176 sparse MLA 补丁及 AOT verifier；
+- Qwen 保存只对 SM121 生效的 QSA physical-slot reference fallback；
+- 三个服务都完成 health、model identity、真实 Chat Completions 和 MTP counter 变化；
+- llama-benchy `0.4.0` 固定 PP512/2048、TG128、C1/C2/C4/C8，每点 3 次；
+- 保存 aggregate/per-request throughput、TTFT、MTP metrics 与内存最低值；
+- FP8 使用双节点 4 GiB watchdog，完整启动和 benchmark 均未触发。
+
+限制：GLM C8 超过 `max_num_seqs=4` 并发生排队；SGLang 的接受率 gauge 是末批值，而
+GLM/vLLM 保存的是整轮 drafted/accepted 累计值，二者不能直接比较。
 
 ## 发布新数字前的检查单
 

@@ -43,6 +43,54 @@ make memory
 增加约 0.40 GiB/节点，并因为 cache 对齐填充使 token 容量下降约 7.9%。当前
 `max-num-seqs=8` 仍比 KV 理论容量更保守。
 
+## 2026-08-27 Flash 模型：统一内存峰值与双节点熔断
+
+### GLM 自动重启的峰值
+
+失败配置中，模型权重和 non-Torch runtime 已接近统一内存预算，多模态/视觉初始化以及
+API 侧缓存又增加约 8 GiB 尾部占用。Linux 一度观测约 119 GiB used、仅约 2 GiB
+available，随后 swap thrashing 并失去响应。
+
+安全 profile 同时改变以下项目：
+
+- `gpu_memory_utilization=0.80`；
+- `max_model_len=8192`、`max_num_seqs=4`；
+- `language_model_only`、`skip_mm_profiling`；
+- multimodal processor cache 为 0；
+- eager execution。
+
+weights + non-Torch 由约 93.93 GiB 降为 91.02 GiB，Head 全程最低 available 12.13 GiB。
+这里的关键不是单个参数，而是避免模型预算与第二份多模态/API 尾部共同越过物理内存。
+
+### Qwen Flash NVFP4 与 FP8
+
+| 项目 | NVFP4 | FP8 TP2/EP2 |
+|---|---:|---:|
+| 主模型/节点 | 72.29 GiB | 93.60 GiB |
+| MTP/节点 | 0.29 GiB | 1.99 GiB |
+| 静态内存比例 | 0.85 | 0.89 |
+| Mamba cache entries | 213 | 64 |
+| KV token capacity | 1,189,248 | 129,856 |
+| Head 最低 available | 13.68 GiB | 8.56 GiB |
+| Worker 最低 available | 未由旧 watchdog 全程记录 | 10.14 GiB |
+
+FP8 的 0.85 profile 没有 OOM，而是 SGLang profiler 主动报告最小可行比例为 0.852 并退出。
+提高到 0.89 后约有 4.4 GiB 用于 Mamba/KV，同时仍给 Linux/JIT 留出约 8～10 GiB 最低
+余量。直接跳到 0.95 没有必要。
+
+### 双节点 watchdog
+
+本轮之后，内存守护必须同时读取 Head 和 Worker 的 `/proc/meminfo`：
+
+```text
+每 2 秒采样 HeadMemAvailable 和 WorkerMemAvailable
+任一节点 < 4 GiB：保存 docker top/stats，停止 Head 和 Worker
+SSH 暂时失败：记录 unavailable，不把未知值误当 0
+```
+
+权重读取时 Worker 可能先达到低点，JIT/warmup 时又可能是 Head 更低。只监控 API 节点
+会漏掉一半风险。watchdog 是最后的熔断，不是提高 `mem_fraction_static` 的理由。
+
 ## 其他案例如何体现统一内存
 
 | 案例 | 关键观测 | 工程结论 |

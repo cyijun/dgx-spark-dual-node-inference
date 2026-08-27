@@ -23,6 +23,12 @@ ssh user@spark-worker.local docker logs --tail 200 <prefix>-worker
 | `docker stats` 很低但系统内存很高 | CUDA 统一内存不在该视图完整展示 | 使用 `make memory` 和 vLLM profiler 日志 |
 | MTP 文件存在但无接受率指标 | 没启用 speculative config，或尚无完成请求 | 查 `Qwen3_5MTP`、`SpeculativeConfig`，执行 `make smoke` |
 | speculative decoding 的 `min_p` 无效 | 当前 vLLM 限制 | 不依赖 `min_p`/`logit_bias`，或关闭 MTP |
+| QSA 抛出 CuTe `weakly congruent` | SM121 不支持当前 packed-varlen shape | 先区分 autotune/graph/真实 decode；使用限定 SM121 的 physical-slot reference fallback |
+| FP8 MoE 报 `320 is not divisible by block_n=128` | 640 intermediate 被 MoE TP=2 切半 | 保持 Attention TP=2，将 MoE 改为 EP=2，使 local expert 保留 640 |
+| 权重加载后提示 static fraction 没有 KV 空间 | 模型 + MTP 已超过静态预算 | 使用 profiler 给出的 minimum viable，限制 Mamba cache，再小步提高 fraction |
+| SGLang streaming chat 拒绝 `return_token_ids=true` | 当前 streaming API 不支持同时返回 token IDs | benchmark 关闭 `return_token_ids`，使用 streaming usage 计数并保留 exact TG |
+| 只有 Head 内存正常，Worker 重启 | 两 rank 的加载/JIT 峰值不同步 | watchdog 同时采集两节点，任一节点越线就停止整个实例 |
+| API 端口 probe 误报，但只看到其他本地地址监听 | 具体地址绑定与 socket reuse 语义不同 | probe 绑定实际 API 地址并设置 `SO_REUSEADDR`，仍需检查 loopback 的真实 listener |
 
 ## 分层排查顺序
 

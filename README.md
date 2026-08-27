@@ -2,7 +2,7 @@
 
 这是我在一对 NVIDIA DGX Spark 上持续部署和验证大模型的实践记录。仓库不再只描述
 Qwen3.8，而是覆盖 2026 年 8 月这轮实验中留下可核验材料的 MiniMax H3、Qwen3.6、
-BigBang-v1、DeepSeek V4 Flash 和 Qwen3.8。
+BigBang-v1、DeepSeek V4 Flash、GLM-5.3 Flash 和 Qwen3.8。
 
 这里同时保留两类内容：
 
@@ -30,6 +30,7 @@ BigBang-v1、DeepSeek V4 Flash 和 Qwen3.8。
 | 08-09 | BigBang-v1 BF16 | 双 Spark TP=2，vLLM 原生 `mp` | 15 shard/revision/RoCE/API 部署记录；无留存性能基准 |
 | 08-17～08-18 | DeepSeek V4 Flash | 双 Spark TP=2，自建 vLLM 0.27.1 | 量化、KV、MoE、CUDA Graph、MTP 的多轮对照与 GuideLLM |
 | 08-19 | Qwen3.8-27B-NVFP4 | 双 Spark TP=2，vLLM 0.27.2 + MTP | 后端、内存、FP8 KV、MTP 接受率和真实请求验收 |
+| 08-27 | GLM-5.3 Flash NVFP4；Qwen3.8 Flash-Next FP8/NVFP4 | 双 Spark TP=2，vLLM/SGLang + MTP | SM121 补丁、双节点内存守护、PP/TG 与 C1/C2/C4/C8 完整 sweep |
 
 按日期串联的演进过程见 [部署历史](docs/HISTORY.md)，按模型展开见：
 
@@ -38,6 +39,7 @@ BigBang-v1、DeepSeek V4 Flash 和 Qwen3.8。
 - [BigBang-v1：71.9 GB BF16 双机 TP](docs/cases/BIGBANG-V1.md)
 - [DeepSeek V4 Flash：从 Anemll 到 vLLM 0.27 自建路径](docs/cases/DEEPSEEK-V4-FLASH.md)
 - [Qwen3.8 NVFP4 + MTP 验收](docs/QWEN38-NVFP4-MTP.md)
+- [GLM-5.3 / Qwen3.8 Flash：TP、EP、QSA、MTP 与统一内存](docs/cases/GLM53-QWEN38-FLASH.md)
 
 ## 最值得复用的结论
 
@@ -55,6 +57,10 @@ BigBang-v1、DeepSeek V4 Flash 和 Qwen3.8。
    会严重污染第一次观测。
 7. **证据不完整就明确降级表述。** BigBang 和早期 DeepSeek 配方保留了成功部署路径，
    但没有可发布的正式 benchmark，因此不补写吞吐数字。
+8. **MoE TP 不一定满足量化 block 对齐。** Qwen FP8 的 640 intermediate 在 TP=2 下变成
+   320，不能整除 block 128；Attention TP=2 + MoE EP=2 才保持 checkpoint 语义。
+9. **内存保护要覆盖两个节点。** 权重读取、JIT 和 API 启动的峰值不一定出现在 Head；
+   双节点 watchdog 应以任一节点的 `MemAvailable` 作为熔断条件。
 
 ## 基准摘要
 
@@ -70,6 +76,9 @@ BigBang-v1、DeepSeek V4 Flash 和 Qwen3.8。
 | DeepSeek V4 官方 checkpoint 热态控制 | C6 97.20 output tok/s；Anemll 记录为 108.18 |
 | MiniMax H3 双机 full-compute warm | 46.574 s；相近单机基线约 154.956 s |
 | MiniMax H3 双机 balanced Cache-DiT warm | 30.578 s；该模式为近似缓存，不是无损 |
+| GLM-5.3 Flash NVFP4，PP2048 / TG128 C1 | 1380.07 / 24.51 tok/s；MTP 累计接受率 84.49% |
+| Qwen3.8 Flash-Next NVFP4，PP2048 / TG128 C8 | prefill C1 2151.06；decode aggregate 93.66 tok/s |
+| Qwen3.8 Flash-Next FP8，PP2048 / TG128 C8 | prefill C1 1905.23；decode aggregate 80.64 tok/s |
 
 机器可读摘要保存在 [`benchmarks/`](benchmarks/README.md)。
 
@@ -119,6 +128,7 @@ make down
 | [`docs/cases/`](docs/cases/) | 各模型的配置、故障链、结论与证据缺口 |
 | [`profiles/deployments.yaml`](profiles/deployments.yaml) | 模型、revision、镜像、并行和关键参数清单 |
 | [`benchmarks/`](benchmarks/) | 精简、可审计的 CSV 测量摘要 |
+| [`patches/`](patches/20260827-flash-models/) | 本轮验证的 GLM/Qwen SM121 最小兼容补丁与派生镜像配方 |
 | [`scripts/`](scripts/) | 当前 Qwen3.8 双机 vLLM 模板及诊断工具 |
 | [`.env.example`](.env.example) | 当前模板的安全占位配置 |
 

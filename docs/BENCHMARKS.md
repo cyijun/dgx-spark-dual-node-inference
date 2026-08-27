@@ -41,6 +41,38 @@ llama-benchy 表。
 两轮低并发相近，高并发并没有单向改善。由于复测未把后端解析日志和完整 image identity
 与结果绑定，`b12x` 只是历史文件标签，不能作为某 kernel 优劣的因果证据。
 
+## 2026-08-27 Flash 模型：完整 PP/TG sweep
+
+三套服务统一使用 llama-benchy `0.4.0`、exact TG128、关闭 prefix cache、每点 3 次。
+GLM 是 vLLM；两个 Qwen 是 SGLang，因此表格用于记录各 profile，不构成框架或量化 A/B。
+
+### 单并发 baseline
+
+| 模型 | PP512 | PP512 TTFT | PP2048 | PP2048 TTFT | PP512 后 TG128 | PP2048 后 TG128 |
+|---|---:|---:|---:|---:|---:|---:|
+| GLM-5.3 Flash NVFP4 | 741.92 | 694.56 ms | 1380.07 | 1487.71 ms | 25.75 | 24.51 |
+| Qwen3.8 Flash-Next NVFP4 | 1056.13 | 491.11 ms | 2151.06 | 955.13 ms | 26.58 | 24.98 |
+| Qwen3.8 Flash-Next FP8 | 898.38 | 582.31 ms | 1905.23 | 1082.69 ms | 25.93 | 19.67 |
+
+除 TTFT 外单位均为 tok/s。相同模型在 PP512 和 PP2048 后的 decode 数字不同，说明短窗口
+波动与 prompt shape 都不可忽略。
+
+### PP512 / TG128 并发总吞吐
+
+| 模型 | C1 | C2 | C4 | C8 |
+|---|---:|---:|---:|---:|
+| GLM-5.3 Flash NVFP4 | 24.65 | 36.94 | 57.75 | 50.21 |
+| Qwen3.8 Flash-Next NVFP4 | 23.30 | 41.07 | 68.16 | 93.66 |
+| Qwen3.8 Flash-Next FP8 | 28.07 | 39.69 | 52.29 | 80.64 |
+
+GLM 的 C8 超过 `max_num_seqs=4`，会排队；其 TTFT 从 C4 的 1445.62 ms 增至 C8 的
+7659.85 ms。因此 C8 下降是 profile 容量边界，不应解读成硬件的最佳吞吐。
+
+Qwen NVFP4/FP8 的末批 MTP 接受率分别为 52.83%/53.59%，平均接受长度为 2.58/2.61；
+GLM 整轮累计接受 4074/4822 个 draft token（84.49%）。Prometheus gauge 与累计 counter
+口径不同。机器可读数据见
+[`benchmarks/flash-models-20260827.csv`](../benchmarks/flash-models-20260827.csv)。
+
 ## DeepSeek V4：把接受率与 runtime 分开
 
 ### Abliterated NVFP4，8 GiB KV hybrid
@@ -107,8 +139,8 @@ Cache-DiT 结果通过完整 decode 和视觉检查，但像素发生变化，�
 ## 当前还不能回答的问题
 
 - BigBang-v1 没有固定 workload 结果，不能给出 tok/s。
-- Qwen3.8 有 MTP 功能接受率和内存差异，但没有正式吞吐 sweep，不能声称 MTP 带来某个
-  百分比的加速。
+- Qwen3.8-27B 有 MTP 功能接受率和内存差异，但没有正式吞吐 sweep，不能声称 MTP 带来
+  某个百分比的加速；这与 08-27 的 Flash-Next sweep 是不同 checkpoint。
 - Qwen3.6 historical nightly 缺完整 image ID，无法做跨时间严格复现。
 - DeepSeek 当前与 Anemll 是跨 runtime generation 的控制，不是单 commit kernel A/B。
 - 文本模型和视频扩散模型的数字不可放在一张“排行榜”里排序。

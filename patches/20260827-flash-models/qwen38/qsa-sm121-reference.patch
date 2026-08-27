@@ -1,0 +1,24 @@
+--- a/python/sglang/srt/layers/attention/qwen_sparse_attn_backend.py
++++ b/python/sglang/srt/layers/attention/qwen_sparse_attn_backend.py
+@@ -1683,5 +1683,21 @@
+         metadata = self._resolve_metadata(forward_batch)
+         topk_indices = topk_indices.to(torch.int32).contiguous()
++        # flash-attn-4's CuTe varlen epilogue rejects Qwen4-Exp's packed QSA
++        # view on GB10 (SM121).  Use the device-agnostic reference operation
++        # over physical cache slots on this architecture.  This preserves QSA
++        # and MTP correctness while the upstream CuTe kernel lacks SM121
++        # support; other architectures keep their optimized implementation.
++        if torch.cuda.get_device_capability(q.device) == (12, 1):
++            slots = self._logical_to_physical(topk_indices, metadata)
++            output = qsa_sparse_attention(
++                q,
++                k_buffer,
++                v_buffer,
++                slots,
++                layer.scaling,
++            )
++            return output.reshape(q.shape[0], -1)
++
+         trtllm_decode = _resolve_trtllm_sparse_decode()
+         if trtllm_decode is not None:
+             return self._forward_trtllm_sparse(

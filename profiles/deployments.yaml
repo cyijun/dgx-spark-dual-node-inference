@@ -1,5 +1,5 @@
 schema_version: 1
-snapshot_date: "2026-08-20"
+snapshot_date: "2026-08-27"
 platform:
   node_class: NVIDIA DGX Spark
   nodes: 2
@@ -318,3 +318,139 @@ deployments:
       draft_tokens: 54
       accepted_draft_tokens: 41
       standardized_throughput_sweep: false
+
+  - id: glm53-flash-nvfp4-mtp-tp2
+    evidence_date: "2026-08-27"
+    model:
+      repo: LibertAIDAI/GLM-5.3-Flash-NVFP4
+      revision: 9e0d74e3cef17f634e84fb8e2223707e02616290
+    runtime:
+      framework: vLLM
+      version: 0.1.dev20051+g487ecf187
+      reference_project: https://github.com/cyijun/glm-5.3-flash-nvfp4-gb10
+      parent_image_digest: sha256:4251b561d111d817765ed4097512ce36811deac071a4a7411d20242df5c74a47
+      derived_image_id_head: sha256:408a12dafd3353aac5f417c5bcae0f1fb4df4135cef457da9ea48ffb43c4e74b
+      derived_image_id_worker: sha256:e941aac06b1f875d608cda4e49f32b6bbc80655584910234e8e861e9de72786f
+    topology:
+      nodes: 2
+      tensor_parallel: 2
+      pipeline_parallel: 1
+      transport: NCCL_over_RoCEv2
+    execution:
+      quantization: modelopt_fp4
+      attention: flashinfer_mla_sparse_sm120_h32_topk2176
+      kv_cache_dtype: fp8_ds_mla
+      kv_block_size: 256
+      moe_backend: marlin
+      speculation: mtp
+      speculative_tokens: 1
+      max_model_len: 8192
+      gpu_memory_utilization: 0.80
+      max_num_seqs: 4
+      max_num_batched_tokens: 4096
+      language_model_only: true
+      skip_mm_profiling: true
+      mm_processor_cache_gib: 0
+      graph_mode: eager
+    service:
+      default_api_port: 8888
+    validation:
+      standardized_llama_benchy_sweep: true
+      concurrency: [1, 2, 4, 8]
+      mtp_draft_tokens: 4822
+      mtp_accepted_tokens: 4074
+      head_min_available_gib: 12.13
+      worker_min_available_gib: not_recorded_by_initial_watchdog
+      reboot_after_safe_profile: false
+
+  - id: qwen38-flash-next-nvfp4-mtp-tp2
+    evidence_date: "2026-08-27"
+    model:
+      repo: RadixArk/Qwen3.8-Flash-Next-NVFP4
+      revision: 7b719225242aacd3dbd3f9407468c2ee9a9d2594
+    runtime:
+      framework: SGLang
+      version: 0.0.0.dev1+gd91c3682b
+      parent_image_digest: sha256:12d3392bdc8be8d35e9a95f191df6aef99c5114bdbefd41bfdc7e760e6d25ec1
+      parent_image_id: sha256:64c58f100438fa5f036bdfbeb3edd3136fb12c5d22d8ae52786c4a701263c55d
+      derived_image_id_head: sha256:c582904a3a547a467f3326bf4f39e4946159bde977387b9ef6f33ea3df4f814f
+      derived_image_id_worker: sha256:f07cec064f13f478b8252a8202db60fc5f30bcd09be29b7b4d7fc5a33fa317b9
+    topology:
+      nodes: 2
+      tensor_parallel: 2
+      expert_parallel: 1
+      transport: NCCL_over_RoCEv2
+    execution:
+      quantization: modelopt_fp4
+      qsa_sm121_path: physical_slot_reference_fallback
+      max_model_len: 32768
+      mem_fraction_static: 0.85
+      max_running_requests: 8
+      mamba_cache_entries: 213
+      linear_attention_prefill: triton
+      linear_attention_decode: flashinfer
+      mamba_ssm_dtype: bfloat16
+      flashinfer_autotune: disabled
+      decode_cuda_graph: disabled
+      speculation: nextn
+      speculative_steps: 3
+      speculative_topk: 1
+      speculative_draft_tokens: 4
+    service:
+      default_api_port: 8888
+    validation:
+      standardized_llama_benchy_sweep: true
+      concurrency: [1, 2, 4, 8]
+      spec_verify_calls: 3638
+      final_batch_accept_rate: 0.5283018868
+      final_batch_accept_length: 2.5849056604
+      head_min_available_gib: 13.68
+
+  - id: qwen38-flash-next-fp8-mtp-tp2-ep2
+    evidence_date: "2026-08-27"
+    model:
+      repo: Qwen/Qwen3.8-Flash-Next-FP8
+      revision: bcd9f01ddc9cff2316eb84281bebcd5b058bddce
+    runtime:
+      framework: SGLang
+      version: 0.0.0.dev1+gd91c3682b
+      parent_image_digest: sha256:12d3392bdc8be8d35e9a95f191df6aef99c5114bdbefd41bfdc7e760e6d25ec1
+      parent_image_id: sha256:64c58f100438fa5f036bdfbeb3edd3136fb12c5d22d8ae52786c4a701263c55d
+      derived_image_id_head: sha256:c582904a3a547a467f3326bf4f39e4946159bde977387b9ef6f33ea3df4f814f
+      derived_image_id_worker: sha256:f07cec064f13f478b8252a8202db60fc5f30bcd09be29b7b4d7fc5a33fa317b9
+    topology:
+      nodes: 2
+      tensor_parallel: 2
+      expert_parallel: 2
+      moe_a2a: standard_nccl
+      transport: NCCL_over_RoCEv2
+    execution:
+      quantization: blockwise_fp8
+      fp8_weight_block_size: [128, 128]
+      moe_intermediate_size: 640
+      qsa_sm121_path: physical_slot_reference_fallback
+      max_model_len: 32768
+      mem_fraction_static: 0.89
+      max_running_requests: 8
+      mamba_cache_entries: 64
+      kv_token_capacity: 129856
+      linear_attention_prefill: triton
+      linear_attention_decode: flashinfer
+      mamba_ssm_dtype: bfloat16
+      flashinfer_autotune: disabled
+      decode_cuda_graph: disabled
+      speculation: nextn
+      speculative_steps: 3
+      speculative_topk: 1
+      speculative_draft_tokens: 4
+    service:
+      default_api_port: 8888
+    validation:
+      standardized_llama_benchy_sweep: true
+      concurrency: [1, 2, 4, 8]
+      spec_verify_calls: 3776
+      final_batch_accept_rate: 0.5358974359
+      final_batch_accept_length: 2.6076923077
+      head_min_available_gib: 8.56
+      worker_min_available_gib: 10.14
+      dual_node_watchdog_cutoff_gib: 4

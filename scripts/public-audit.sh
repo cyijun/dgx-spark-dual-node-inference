@@ -7,11 +7,13 @@ cd "$REPO_ROOT"
 echo "[1/5] Shell syntax"
 while IFS= read -r script; do
   bash -n "$script"
-done < <(find scripts -type f -name '*.sh' -print | sort)
+done < <(find scripts patches -type f -name '*.sh' -print | sort)
 
 echo "[2/5] Optional ShellCheck"
 if command -v shellcheck >/dev/null; then
-  shellcheck -x scripts/*.sh
+  while IFS= read -r script; do
+    shellcheck -x "$script"
+  done < <(find scripts patches -type f -name '*.sh' -print | sort)
 else
   echo "shellcheck not installed; skipped"
 fi
@@ -25,9 +27,19 @@ if rg -n \
   --hidden \
   --glob '!scripts/public-audit.sh' \
   --glob '!.git/**' \
-  '(hf_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{20,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|cyijun|spark-b4a6|spark-c829|tailnet\.cyjason)' \
+  '(hf_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{20,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|spark-b4a6|spark-c829|tailnet\.cyjason)' \
   .; then
   echo "public audit found a possible secret or private host identity" >&2
+  exit 1
+fi
+if rg -n \
+  --pcre2 \
+  --hidden \
+  --glob '!scripts/public-audit.sh' \
+  --glob '!.git/**' \
+  '(?<!github\.com/)(?<!ghcr\.io/)cyijun' \
+  .; then
+  echo "public audit found a private user identity outside an allowed public GitHub/registry URL" >&2
   exit 1
 fi
 

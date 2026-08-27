@@ -137,6 +137,33 @@ NVFP4 checkpoint 的 B12X W4A16 target 在 C6 达到 80.27 tok/s。
 加载与权重共享；96-token 验收请求后累计接受 41/54 个 draft tokens（75.9%）。
 MTP 使每节点模型内存约从 10.67 增至 11.07 GiB，FP8 KV 全局 token 容量约下降 7.9%。
 
+## 2026-08-27：GLM-5.3 与 Qwen3.8 Flash 双机 TP + MTP
+
+这一轮同时验证 `GLM-5.3-Flash-NVFP4`、`Qwen3.8-Flash-Next-NVFP4` 和
+`Qwen3.8-Flash-Next-FP8`，并首次为本仓库保留三者一致的 llama-benchy sweep。
+
+GLM 以公开 GB10 项目为父镜像。TP=2 把 sparse MLA heads 从 64 切到 32，必须为
+FlashInfer 补充 H=32/top-k=2176 decode dispatch 和 prefill AOT。第一次配置同时启用了
+多模态初始化和过高统一内存预算，Linux 一度只剩约 2 GiB available 并自动重启。最终用
+纯文本模式、关闭多模态 profiling/cache、`gpu_memory_utilization=0.80` 和 8192 context
+稳定通过，Head 最低 available 12.13 GiB。
+
+Qwen 使用 SGLang day-0 镜像。FlashAttention/CuTe packed-varlen QSA 在 SM121 抛出 weakly
+congruent 错误；关闭 autotune/graph 不能解决真实 MTP draft decode。本轮增加只对 `(12,1)`
+生效的 physical-slot reference QSA fallback，并固定 GDN 为 Triton prefill、FlashInfer
+decode、BF16 Mamba state。
+
+FP8 还暴露了量化 block 与 MoE TP 的结构冲突：640 intermediate 经 TP=2 变成 320，不能
+整除 block 128。Attention 保持 TP=2，MoE 改为 EP=2 后，每个本地 expert 保留完整 640。
+最终 profile 使用 `mem_fraction_static=0.89`、64-entry Mamba cache；主权重约 93.60 GiB、
+MTP 约 1.99 GiB，启动/JIT/benchmark 全程 Head/Worker 最低 available 为 8.56/10.14 GiB。
+
+代表结果：Qwen Flash NVFP4/FP8 的 PP2048 分别为 2151.06/1905.23 tok/s，C8 aggregate
+decode 分别为 93.66/80.64 tok/s。GLM PP2048 为 1380.07 tok/s，C4 aggregate decode
+57.75 tok/s；C8 因 `max_num_seqs=4` 排队。
+
+完整案例与补丁见 [GLM-5.3 / Qwen3.8 Flash](cases/GLM53-QWEN38-FLASH.md)。
+
 ## 如何继续追加历史
 
 新增案例时至少保存：

@@ -7,6 +7,7 @@
 | `qwen36-summary.csv` | Qwen3.6 27B TP1/TP2 与 35B-A3B 的 llama-benchy 代表点 |
 | `deepseek-v4-summary.csv` | DeepSeek V4 GuideLLM、target/draft 与官方控制代表点 |
 | `minimax-h3-summary.csv` | MiniMax H3 单/双机固定视频请求代表点 |
+| `flash-models-20260827.csv` | GLM-5.3 Flash NVFP4 与 Qwen3.8 Flash-Next FP8/NVFP4 的 llama-benchy sweep |
 
 这些 CSV 不是全部原始日志，也不重新定义原工具字段。每行保留 `source_record`，指向
 产生它的历史结果文件名或发布记录。完整解读与不可比边界见
